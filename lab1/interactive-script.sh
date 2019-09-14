@@ -17,7 +17,7 @@ do
   case $cmd in
     1) pwd -P || echo 'Something went wrong with pwd' >&3 ;;
     2) echo 'Enter new path:'; read npath
-       cd "$npath" || echo 'Something went wrong with cd' >&3 ;;
+       cd -- "$npath" || echo 'Something went wrong with cd' >&3 ;;
     3) echo 'Enter command to run:'; read rcmd
        bash -c "$rcmd" || echo "Something went wrong with $rcmd" >&3 ;;
     4) echo 'Enter directory name:'; read dirname
