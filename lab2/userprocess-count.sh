@@ -24,10 +24,13 @@ do
   fi
 done
 
+result=()
 for item in "${!PROC_AMOUNT[@]}"
 do
 if (( ${PROC_AMOUNT[$item]} > $boundary )); then
-  echo $item
+  result+=($item)
 fi
 done
+
+printf "%s\n" "${result[@]}" | sort -d
 
