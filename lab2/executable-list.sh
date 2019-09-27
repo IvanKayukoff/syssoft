@@ -63,10 +63,13 @@ do
   files+=($(ls -l $item | grep -v '^total'))
 done
 
+result=()
 for item in "${files[@]}"
 do
   if user_executable $item ; then
-    echo $item
+    result+=($item)
   fi
 done
+
+printf "%s\n" "${result[@]}" | sort -r -d -k9
 
