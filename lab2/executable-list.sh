@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# This script prints all executable files which can be executed by the current user
+
 read -r -a groups <<< "$(groups)"
 
 # Checks if the element is present in the array
