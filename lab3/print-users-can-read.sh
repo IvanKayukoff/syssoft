@@ -1,44 +1,39 @@
 #!/bin/bash
 
+# This script prints all users that can read specified file.
+# You have to specify the path to the desired file as the first script argument.
+
+# Check that user's specified the file path
 file_name=$1
+[ -z "$file_name" ] && echo "You have to specify the path to the desired file" && exit 1
 
-permission=$(ls -l $file_name)
+# Check that the specified file exists
+ll_line=$(ls -l $file_name 2>/dev/null)
+[ ! $? == 0 ] && echo "File \"$file_name\" not found :(" && exit 1
 
-if [[ $permission =~ ^.r ]]; then
-  permission_for_owner=1
-  owner=$(echo $permission | awk '{print $3}')
-fi
-
-if [[ $permission =~ ^.{4}r ]]; then
-  permission_for_group=1
-  group_name=$(echo $permission | awk '{print $4}')
-fi
-
-if [[ $permission =~ ^.{7}r ]]; then
-  permission_for_other=1
-fi
-
+owner=$(echo $ll_line | awk '{print $3}')
+group_name=$(echo $ll_line | awk '{print $4}')
 group_members=($(awk -F ":" "{ if (\$1 == \"$group_name\") print \$4}" /etc/group | awk '/./'))
 
-if [[ $permission_for_other ]]; then
+if [[ $ll_line =~ ^.{7}r ]]; then
   result=($(awk -F ":" '{print $1}' /etc/passwd))
 else
   result=("${group_members[@]}")
   result+=("$owner")
 fi
 
-if [[ ! $permission_for_group ]]; then
+if [[ ! $ll_line =~ ^.{4}r ]]; then
   for member in ${group_members[@]}
   do
     result=("${result[@]/$member}")
   done
 fi
 
-if [[ ! $permission_for_owner ]]; then
+if [[ ! $ll_line =~ ^.r ]]; then
   result=("${result[@]/$owner}")
 fi
 
-for i in "${result[@]}"; do 
-  echo "$i"
+for username in "${result[@]}"; do 
+  echo "$username"
 done
 
