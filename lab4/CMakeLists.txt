@@ -3,4 +3,7 @@ project(lab4 C)
 
 set(CMAKE_C_STANDARD 99)
 
-add_executable(lab4 main.c)
+set(GCC_COVERAGE_COMPILE_FLAGS "-Wall -Wextra -pedantic -Werror")
+set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}")
+
+add_executable(lab4 cmp.c)
