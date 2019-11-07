@@ -5,16 +5,20 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <limits.h>
 
 static void usage();
 static void error(char const *reason);
 static int cmp();
+static int cmp_blocks(size_t **blocks, size_t *line_number, size_t *byte_number);
+static size_t count_set_bits(size_t n);
+static size_t first_set_bit(size_t n);
 
 static char const *program_name = "cmp";
 static char const *program_version = "0.1";
 static char const *filename[2];
 static int file_desc[2];
-static unsigned long file_shift[2];
+static size_t file_offset[2];
 
 static enum {
   type_first_diff,
@@ -58,8 +62,8 @@ int main(int argc, char *argv[]) {
   filename[1] = optind < argc ? argv[optind++] : "-";
 
   // TODO use endptr instead of NULL to parse the suffix and check irregular input
-  file_shift[0] = optind < argc ? strtoul(argv[optind++], NULL, 10) : 0;
-  file_shift[1] = optind < argc ? strtoul(argv[optind++], NULL, 10) : 0;
+  file_offset[0] = optind < argc ? strtoul(argv[optind++], NULL, 10) : 0;
+  file_offset[1] = optind < argc ? strtoul(argv[optind++], NULL, 10) : 0;
 
   if (optind < argc) {
     error("extra operands");
@@ -67,7 +71,7 @@ int main(int argc, char *argv[]) {
 
   struct stat stat_buf[2];
   for (int i = 0; i < 2; ++i) {
-    if (i && strcmp(filename[0], filename[1]) == 0 && file_shift[0] == file_shift[1]) {
+    if (i && strcmp(filename[0], filename[1]) == 0 && file_offset[0] == file_offset[1]) {
       exit(0);
     }
 
@@ -81,7 +85,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (stat_buf[0].st_ino == stat_buf[1].st_ino && file_shift[0] == file_shift[1]) {
+  if (stat_buf[0].st_ino == stat_buf[1].st_ino && file_offset[0] == file_offset[1]) {
     exit(0);
   }
 
@@ -97,9 +101,77 @@ int main(int argc, char *argv[]) {
   return status;
 }
 
-int cmp() {
+static int cmp() {
+  size_t line_number = 1;
+  size_t byte_number = file_offset[0] + 1;
+  size_t buffer[2];
+
+  for (int i = 0; i < 2; ++i) {
+    if (lseek(file_desc[i], file_offset[i], SEEK_SET) == -1L) {
+      fprintf(stderr, "%s: error while reading file '%s'", program_name, filename[i]);
+      exit(2);
+    }
+  }
+
+  while (1) {
+    long bytes_read[2];
+    for (int i = 0; i < 2; ++i) {
+      bytes_read[i] = read(file_desc[i], buffer + i, sizeof(long));
+      if (bytes_read[i] == -1) {
+        fprintf(stderr, "%s: error while reading file '%s'", program_name, filename[i]);
+        exit(2);
+      }
+      if (bytes_read[i] < (long) sizeof(long)) {
+        ((char *)buffer[i])[bytes_read[i]] = '\0';
+      }
+    }
+    // TODO call cmp_blocks
+    break;
+  }
+
   // TODO unimplemented
   return 0;
+}
+
+/**
+ * Compares two strings and finds the first different byte.
+ * @return index of the first difference or -1 if the blocks are identical.
+ */
+// TODO use page of memory instead of single block
+static int cmp_blocks(size_t **blocks, size_t *line_number, size_t *byte_number) {
+  size_t magic_bits = -1;
+  magic_bits = magic_bits / 0xFF * 0xFE << 1 >> 1 | 1;
+
+  unsigned char newline_char = '\n';
+  size_t charmask = newline_char | (newline_char << 8);
+  charmask |= charmask << 16;
+  if (sizeof (size_t) > 4) {
+    charmask |= (charmask << 16) << 16;
+  }
+
+  // TODO unimplemented
+  return -1;
+}
+
+static size_t count_set_bits(size_t n) {
+  size_t count = 0;
+  while (n) {
+    count += n & 1UL;
+    n >>= 1UL;
+  }
+  return count;
+}
+
+/**
+ * Returns index of the first set bit or -1 if all bits are unset.
+ */
+static size_t first_set_bit(size_t n) {
+  for (size_t i = 0; i < sizeof(size_t) * 8; ++i) {
+    if ((n & 1UL) == 1) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 static void usage() {
