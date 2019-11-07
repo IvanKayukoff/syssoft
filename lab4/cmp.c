@@ -2,13 +2,19 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 static void usage();
 static void error(char const *reason);
+static int cmp();
 
 static char const *program_name = "cmp";
 static char const *program_version = "0.1";
-static char const *file_names[2];
+static char const *filename[2];
+static int file_desc[2];
+static unsigned long file_shift[2];
 
 static enum {
   type_first_diff,
@@ -22,7 +28,6 @@ static struct option const long_options[] = {
     {"help",    0, NULL, 129},
     {NULL,      0, NULL, 0}
 };
-
 
 int main(int argc, char *argv[]) {
   int key = 0;
@@ -49,13 +54,51 @@ int main(int argc, char *argv[]) {
     error("missing operand");
   }
 
-  file_names[0] = argv[optind++];
-  file_names[1] = optind < argc ? argv[optind++] : "-";
+  filename[0] = argv[optind++];
+  filename[1] = optind < argc ? argv[optind++] : "-";
+
+  // TODO use endptr instead of NULL to parse the suffix and check irregular input
+  file_shift[0] = optind < argc ? strtoul(argv[optind++], NULL, 10) : 0;
+  file_shift[1] = optind < argc ? strtoul(argv[optind++], NULL, 10) : 0;
 
   if (optind < argc) {
     error("extra operands");
   }
 
+  struct stat stat_buf[2];
+  for (int i = 0; i < 2; ++i) {
+    if (i && strcmp(filename[0], filename[1]) == 0 && file_shift[0] == file_shift[1]) {
+      exit(0);
+    }
+
+    file_desc[i] = (strcmp(filename[i], "-") != 0 ? open(filename[i], O_RDONLY) : STDIN_FILENO);
+
+    if (file_desc[i] < 0 || fstat(file_desc[i], &stat_buf[i]) != 0) {
+      if (file_desc[i] < 0 && comparison_type != type_status_only) {
+        fprintf(stderr, "%s: inaccessible file '%s'", program_name, filename[i]);
+      }
+      exit(2);
+    }
+  }
+
+  if (stat_buf[0].st_ino == stat_buf[1].st_ino && file_shift[0] == file_shift[1]) {
+    exit(0);
+  }
+
+  int status = cmp();
+  for (int i = 0; i < 2; ++i) {
+    if (close(file_desc[i]) != 0) {
+      if (status != 0 && comparison_type != type_status_only) {
+        fprintf(stderr, "%s: could not close file '%s'", program_name, filename[i]);
+      }
+    }
+  }
+
+  return status;
+}
+
+int cmp() {
+  // TODO unimplemented
   return 0;
 }
 
@@ -71,7 +114,7 @@ static void usage() {
   -v  --version  Output version info.\n\
   --help  Output this help.\n\n");
 
-  printf("If a FILE is `-' or missing, read standard input.\n");
+  printf("If a FILE is '-' or missing, read standard input.\n");
   printf("Exit status is 0 if inputs are the same, 1 if different, 2 if trouble.\n");
 }
 
@@ -81,5 +124,5 @@ static void error(char const *reason) {
   } else {
     fprintf(stderr, "Try '%s --help' for more information.\n", program_name);
   }
-  exit(EXIT_FAILURE);
+  exit(2);
 }
