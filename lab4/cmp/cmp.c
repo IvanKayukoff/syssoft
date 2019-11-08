@@ -5,6 +5,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 static void usage();
 static void error(char const *reason);
@@ -124,7 +125,7 @@ static int cmp(size_t *line_number, size_t *byte_number) {
 
   for (int i = 0; i < 2; ++i) {
     if (lseek(file_desc[i], file_offset[i], SEEK_SET) == -1L) {
-      fprintf(stderr, "%s: error while reading file '%s'", program_name, filename[i]);
+      fprintf(stderr, "%s: error while reading file '%s': %s\n", program_name, filename[i], strerror(errno));
       exit(2);
     }
   }
@@ -135,7 +136,7 @@ static int cmp(size_t *line_number, size_t *byte_number) {
     for (int i = 0; i < 2; ++i) {
       bytes_read[i] = read(file_desc[i], buffer + i, sizeof(long));
       if (bytes_read[i] == -1) {
-        fprintf(stderr, "%s: error while reading file '%s'", program_name, filename[i]);
+        fprintf(stderr, "%s: error while reading file '%s': %s\n", program_name, filename[i], strerror(errno));
         exit(2);
       }
       if (bytes_read[i] == 0) {
