@@ -10,7 +10,7 @@
 static void usage();
 static void error(char const *reason);
 static int cmp();
-static int cmp_blocks(size_t **blocks, size_t *line_number, size_t *byte_number);
+static int cmp_blocks(size_t block0, size_t block1, size_t *line_number, size_t *byte_number);
 static size_t count_set_bits(size_t n);
 static size_t first_set_bit(size_t n);
 
@@ -121,12 +121,21 @@ static int cmp() {
         fprintf(stderr, "%s: error while reading file '%s'", program_name, filename[i]);
         exit(2);
       }
+      if (bytes_read[i] == 0) {
+        return 0; // the files are identical
+      }
       if (bytes_read[i] < (long) sizeof(long)) {
-        ((char *)buffer[i])[bytes_read[i]] = '\0';
+        ((char *)(buffer + i))[bytes_read[i] - 1] = '\0';
+        // TODO call cmp_blocks_with_eof
+        exit(3); // FIXME
       }
     }
-    // TODO call cmp_blocks
-    break;
+    // TODO call cmp_blocks properly
+    int cmp_res = cmp_blocks(buffer[0], buffer[1], &line_number, &byte_number);
+    if (cmp_res != -1) {
+      break;
+    }
+
   }
 
   // TODO unimplemented
@@ -135,21 +144,44 @@ static int cmp() {
 
 /**
  * Compares two strings and finds the first different byte.
+ * Make sure the blocks do not contain EOF before calling this function.
+ * NOTE: the function does not care if the blocks contain '\0' symbols,
+ * the function treats them as regular symbols.
  * @return index of the first difference or -1 if the blocks are identical.
  */
 // TODO use page of memory instead of single block
-static int cmp_blocks(size_t **blocks, size_t *line_number, size_t *byte_number) {
+static int cmp_blocks(size_t block0, size_t block1, size_t *line_number, size_t *byte_number) {
   size_t magic_bits = -1;
   magic_bits = magic_bits / 0xFF * 0xFE << 1 >> 1 | 1;
 
   unsigned char newline_char = '\n';
-  size_t charmask = newline_char | (newline_char << 8);
-  charmask |= charmask << 16;
+  size_t newline_mask = newline_char | (newline_char << 8);
+  newline_mask |= newline_mask << 16;
   if (sizeof (size_t) > 4) {
-    charmask |= (charmask << 16) << 16;
+    newline_mask |= (newline_mask << 16) << 16;
   }
 
-  // TODO unimplemented
+  /* The blocks identity test  */
+  size_t identity_test_res = (((block0 ^ block1) + magic_bits) ^ ~(block0 ^ block1)) & magic_bits;
+  if (identity_test_res == 0) {
+    *byte_number += sizeof(size_t);
+
+    /* Test block0 for '\n' chars */
+    size_t newline_applied = (((block0 ^ newline_mask) + magic_bits) ^ ~(block0 ^ newline_mask)) & ~magic_bits;
+    if (newline_applied != 0) {
+      *line_number += count_set_bits(newline_applied);
+    }
+  } else {
+    unsigned char *cp0 = (unsigned char *) &block0;
+    unsigned char *cp1 = (unsigned char *) &block1;
+    for (int i = 0; i < sizeof(size_t); ++i) {
+      if (cp0[i] != cp1[i]) {
+        return i;
+      } else if (cp0[0] == '\n') {
+        *line_number += 1;
+      }
+    }
+  }
   return -1;
 }
 
