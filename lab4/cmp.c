@@ -5,14 +5,15 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <limits.h>
 
 static void usage();
 static void error(char const *reason);
-static int cmp();
+static int cmp(size_t *line_number, size_t *byte_number);
 static int cmp_blocks(size_t block0, size_t block1, size_t *line_number, size_t *byte_number);
 static size_t count_set_bits(size_t n);
-static size_t first_set_bit(size_t n);
+static void print_result(int status, size_t const *line_number, size_t const *byte_number);
+static int cmp_blocks_with_eof(size_t block0, size_t block1, size_t const block_size[],
+    size_t *line_number, size_t *byte_number);
 
 static char const *program_name = "cmp";
 static char const *program_version = "0.1";
@@ -89,7 +90,12 @@ int main(int argc, char *argv[]) {
     exit(0);
   }
 
-  int status = cmp();
+  size_t line_number = 1;
+  size_t byte_number = file_offset[0] + 1;
+  int status = cmp(&line_number, &byte_number);
+
+  print_result(status, &line_number, &byte_number);
+
   for (int i = 0; i < 2; ++i) {
     if (close(file_desc[i]) != 0) {
       if (status != 0 && comparison_type != type_status_only) {
@@ -101,9 +107,19 @@ int main(int argc, char *argv[]) {
   return status;
 }
 
-static int cmp() {
-  size_t line_number = 1;
-  size_t byte_number = file_offset[0] + 1;
+static void print_result(int status, size_t const *line_number, size_t const *byte_number) {
+  if (comparison_type != type_status_only && status != 0) {
+    printf("%s %s differ: byte %lu, line %lu\n", filename[0], filename[1], *byte_number, *line_number);
+  }
+}
+
+/**
+ * Compares files content, with FILE_DECS descriptors, byte by byte.
+ * @param line_number a number of lines which are identical.
+ * @param byte_number a number of bytes which are identical.
+ * @return 0 if they are identical, otherwise - 1.
+ */
+static int cmp(size_t *line_number, size_t *byte_number) {
   size_t buffer[2];
 
   for (int i = 0; i < 2; ++i) {
@@ -115,6 +131,7 @@ static int cmp() {
 
   while (1) {
     long bytes_read[2];
+    int eof_reached = 0;
     for (int i = 0; i < 2; ++i) {
       bytes_read[i] = read(file_desc[i], buffer + i, sizeof(long));
       if (bytes_read[i] == -1) {
@@ -125,21 +142,20 @@ static int cmp() {
         return 0; // the files are identical
       }
       if (bytes_read[i] < (long) sizeof(long)) {
-        ((char *)(buffer + i))[bytes_read[i] - 1] = '\0';
-        // TODO call cmp_blocks_with_eof
-        exit(3); // FIXME
+        ((char *)(buffer + i))[bytes_read[i]] = '\0';
+        eof_reached = 1;
       }
     }
-    // TODO call cmp_blocks properly
-    int cmp_res = cmp_blocks(buffer[0], buffer[1], &line_number, &byte_number);
+
+    int cmp_res = eof_reached
+        ? cmp_blocks_with_eof(buffer[0], buffer[1], (size_t *) bytes_read, line_number, byte_number)
+        : cmp_blocks(buffer[0], buffer[1], line_number, byte_number);
     if (cmp_res != -1) {
-      break;
+      return 1;
+    } else if (eof_reached) {
+      return 0;
     }
-
   }
-
-  // TODO unimplemented
-  return 0;
 }
 
 /**
@@ -166,7 +182,7 @@ static int cmp_blocks(size_t block0, size_t block1, size_t *line_number, size_t 
   if (identity_test_res == 0) {
     *byte_number += sizeof(size_t);
 
-    /* Test block0 for '\n' chars */
+    /* Test block0 for '\n' chars  */
     size_t newline_applied = (((block0 ^ newline_mask) + magic_bits) ^ ~(block0 ^ newline_mask)) & ~magic_bits;
     if (newline_applied != 0) {
       *line_number += count_set_bits(newline_applied);
@@ -174,15 +190,43 @@ static int cmp_blocks(size_t block0, size_t block1, size_t *line_number, size_t 
   } else {
     unsigned char *cp0 = (unsigned char *) &block0;
     unsigned char *cp1 = (unsigned char *) &block1;
-    for (int i = 0; i < sizeof(size_t); ++i) {
+    for (size_t i = 0; i < sizeof(size_t); ++i) {
       if (cp0[i] != cp1[i]) {
         return i;
       } else if (cp0[0] == '\n') {
         *line_number += 1;
       }
+      *byte_number += 1;
     }
   }
   return -1;
+}
+
+/**
+ * Compares two strings and finds the first different byte.
+ * Assumes that one of the blocks contains EOF symbol at 'amount' position.
+ * NOTE: the function does not care if the blocks contain '\0' symbols,
+ * the function treats them as regular symbols.
+ * @param block_size array with number of meaningful bytes of each block.
+ * @return index of the first difference or -1 if the blocks are identical.
+ */
+static int cmp_blocks_with_eof(size_t block0, size_t block1, size_t const block_size[],
+    size_t *line_number, size_t *byte_number) {
+
+  size_t amount = block_size[0] > block_size[1] ? block_size[1] : block_size[0];
+  unsigned char *s0 = (unsigned char *) &block0;
+  unsigned char *s1 = (unsigned char *) &block1;
+
+  for (size_t i = 0; i < amount; ++i) {
+    if (s0[i] == s1[i]) {
+      *byte_number += 1;
+      *line_number += s0[i] == '\n' ? 1 : 0;
+    } else {
+      return i;
+    }
+  }
+
+  return block_size[0] == block_size[1] ? -1 : (int) amount;
 }
 
 static size_t count_set_bits(size_t n) {
@@ -192,18 +236,6 @@ static size_t count_set_bits(size_t n) {
     n >>= 1UL;
   }
   return count;
-}
-
-/**
- * Returns index of the first set bit or -1 if all bits are unset.
- */
-static size_t first_set_bit(size_t n) {
-  for (size_t i = 0; i < sizeof(size_t) * 8; ++i) {
-    if ((n & 1UL) == 1) {
-      return i;
-    }
-  }
-  return -1;
 }
 
 static void usage() {
