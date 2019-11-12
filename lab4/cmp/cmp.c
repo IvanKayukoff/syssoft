@@ -179,8 +179,7 @@ static int cmp_blocks(size_t block0, size_t block1, size_t *line_number, size_t 
   }
 
   /* The blocks identity test  */
-  size_t identity_test_res = (((block0 ^ block1) + magic_bits) ^ ~(block0 ^ block1)) & magic_bits;
-  if (identity_test_res == 0) {
+  if ((block0 ^ block1) == 0) {
     *byte_number += sizeof(size_t);
 
     /* Test block0 for '\n' chars  */
